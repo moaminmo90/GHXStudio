@@ -9,4 +9,4 @@ obj/
 *.vs/
 
 # Proprietary McNeel Libraries (DO NOT UPLOAD)
-Libs/*.dll
+**/Libs/*.dll

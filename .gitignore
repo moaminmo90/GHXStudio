@@ -1,0 +1,12 @@
+# .NET Core
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+*.cache
+*.vs/
+
+# Proprietary McNeel Libraries (DO NOT UPLOAD)
+Libs/*.dll

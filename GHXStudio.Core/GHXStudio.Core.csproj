@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <TargetExt>.rhp</TargetExt>
+    <Title>GHX Studio</Title>
+    <Description>DevTools for Grasshopper. Advanced performance profiling, static analysis, and debugging for parametric design.</Description>
+    <Authors>Mohammad Amin Moradi</Authors>
+    <Company>Mohammad Amin Moradi</Company>
+    <Copyright>Copyright © 2026 Mohammad Amin Moradi</Copyright>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="icon.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RhinoCommon" Version="8.*" />
+    <PackageReference Include="Grasshopper" Version="8.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Grasshopper2">
+      <HintPath>Libs\Grasshopper2.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

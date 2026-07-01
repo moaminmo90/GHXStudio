@@ -5,11 +5,11 @@ using Eto.Drawing;
 using GHXStudio.Core.Services;
 using GHXStudio.Core.Models;
 
-// Explicit Aliasing to prevent collisions
+// Explicit Aliasing
 using Form = Eto.Forms.Form;
 using Size = Eto.Drawing.Size;
 using Font = Eto.Drawing.Font;
-using Color = Eto.Drawing.Color; // <-- Added explicit alias for Color
+using Color = Eto.Drawing.Color;
 using Binding = Eto.Forms.Binding;
 using Label = Eto.Forms.Label;
 using Button = Eto.Forms.Button;
@@ -19,6 +19,9 @@ using MessageBox = Eto.Forms.MessageBox;
 using DialogResult = Eto.Forms.DialogResult;
 using MessageBoxButtons = Eto.Forms.MessageBoxButtons;
 using FileFilter = Eto.Forms.FileFilter;
+using TableLayout = Eto.Forms.TableLayout;
+using TableRow = Eto.Forms.TableRow;
+using TableCell = Eto.Forms.TableCell;
 
 namespace GHXStudio.Core.UI;
 
@@ -51,12 +54,6 @@ public sealed class DashboardWindow : Form
         _metricsGrid.Columns.Add(new GridColumn { HeaderText = "Memory (MB)", DataCell = new TextBoxCell { Binding = Binding.Property<NodeTelemetryRecord, string>(r => r.MemoryEstimateMb.ToString("F2")) }, Width = 80 });
         _metricsGrid.Columns.Add(new GridColumn { HeaderText = "Static Analysis / Linter", DataCell = new TextBoxCell { Binding = Binding.Property<NodeTelemetryRecord, string>(r => RuleEngineService.EvaluateNode(r)) }, Width = 600 });
 
-        var layout = new DynamicLayout { Padding = 10, Spacing = new Size(5, 10) };
-        
-        layout.AddRow(new Label { Text = "📊 Real-time Execution Timeline & Debugger", Font = new Font(SystemFont.Bold, 14) });
-        layout.AddRow(_summaryLabel); // Section 5.4: Solve Summary
-        layout.AddRow(_metricsGrid);
-        
         var buttonLayout = new StackLayout
         {
             Orientation = Orientation.Horizontal,
@@ -69,8 +66,21 @@ public sealed class DashboardWindow : Form
                 CreateExportButton()
             }
         };
+
+        // NEW ROBUST LAYOUT: Guarantees the GridView stays contained and shows scrollbars for massive definitions
+        var layout = new TableLayout
+        {
+            Padding = 10,
+            Spacing = new Size(5, 10),
+            Rows = 
+            {
+                new TableRow(new Label { Text = "📊 Real-time Execution Timeline & Debugger", Font = new Font(SystemFont.Bold, 14) }),
+                new TableRow(_summaryLabel),
+                new TableRow { Cells = { new TableCell(_metricsGrid, true) }, ScaleHeight = true }, // This line forces the scrollbar
+                new TableRow(buttonLayout)
+            }
+        };
         
-        layout.AddRow(buttonLayout);
         Content = layout;
         
         RefreshData();
@@ -150,7 +160,6 @@ public sealed class DashboardWindow : Form
         var snapshot = ProfilerService.GetCurrentSnapshot();
         _metricsGrid.DataStore = snapshot.Cast<object>();
 
-        // Update Solve Summary (Section 5.4)
         if (snapshot.Any())
         {
             double totalTime = snapshot.Sum(x => x.ExecutionTimeMs);

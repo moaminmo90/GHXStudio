@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace GHXStudio.Core.Models;
 
@@ -22,5 +23,6 @@ public readonly record struct UpstreamTraceResult(
     Guid RootCauseNodeId,
     string RootCauseNodeName,
     int StepsUpstream,
-    string ProbableCauseDescription
+    string ProbableCauseDescription,
+    List<Guid> TracePath
 );

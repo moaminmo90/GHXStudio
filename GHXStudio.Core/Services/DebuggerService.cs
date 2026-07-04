@@ -51,29 +51,35 @@ public static class DebuggerService
     public static UpstreamTraceResult TraceRootCause(Guid targetNodeId)
     {
         var doc = Instances.ActiveCanvas?.Document;
-        if (doc == null) return new UpstreamTraceResult(false, Guid.Empty, string.Empty, 0, "No active document.");
+        if (doc == null) return new UpstreamTraceResult(false, Guid.Empty, string.Empty, 0, "No active document.", new List<Guid>());
 
         var targetObj = doc.FindObject(targetNodeId, false) as IGH_Component;
-        if (targetObj == null) return new UpstreamTraceResult(false, Guid.Empty, string.Empty, 0, "Node not found.");
+        if (targetObj == null) return new UpstreamTraceResult(false, Guid.Empty, string.Empty, 0, "Node not found.", new List<Guid>());
 
-        var queue = new Queue<(IGH_Component Node, int Depth)>();
+        var queue = new Queue<(IGH_Component Node, int Depth, List<Guid> Path)>();
         var visited = new HashSet<Guid>();
 
-        queue.Enqueue((targetObj, 0));
+        queue.Enqueue((targetObj, 0, new List<Guid> { targetObj.InstanceGuid }));
         visited.Add(targetObj.InstanceGuid);
 
         while (queue.Count > 0)
         {
-            var (currentNode, depth) = queue.Dequeue();
+            var (currentNode, depth, currentPath) = queue.Dequeue();
 
             if (depth > 0)
             {
                 if (currentNode.RuntimeMessageLevel == GH_RuntimeMessageLevel.Error || currentNode.RuntimeMessageLevel == GH_RuntimeMessageLevel.Warning)
-                    return new UpstreamTraceResult(true, currentNode.InstanceGuid, currentNode.NickName, depth, "Upstream node failed natively.");
+                {
+                    currentPath.Reverse(); // Reverse to map flow from Root Cause -> Target
+                    return new UpstreamTraceResult(true, currentNode.InstanceGuid, currentNode.NickName, depth, "Upstream node failed natively.", currentPath);
+                }
 
                 var health = InspectDataTree(currentNode.InstanceGuid);
                 if (health.NullCount > 0)
-                    return new UpstreamTraceResult(true, currentNode.InstanceGuid, currentNode.NickName, depth, $"Generated {health.NullCount} Null values cascading downstream.");
+                {
+                    currentPath.Reverse();
+                    return new UpstreamTraceResult(true, currentNode.InstanceGuid, currentNode.NickName, depth, $"Generated {health.NullCount} Null values cascading downstream.", currentPath);
+                }
             }
 
             foreach (var inputParam in currentNode.Params.Input)
@@ -83,17 +89,15 @@ public static class DebuggerService
                     if (source.Attributes.GetTopLevel.DocObject is IGH_Component sourceComponent && !visited.Contains(sourceComponent.InstanceGuid))
                     {
                         visited.Add(sourceComponent.InstanceGuid);
-                        queue.Enqueue((sourceComponent, depth + 1));
+                        var newPath = new List<Guid>(currentPath) { sourceComponent.InstanceGuid };
+                        queue.Enqueue((sourceComponent, depth + 1, newPath));
                     }
                 }
             }
         }
-        return new UpstreamTraceResult(false, targetObj.InstanceGuid, targetObj.NickName, 0, "No external root cause found.");
+        return new UpstreamTraceResult(false, targetObj.InstanceGuid, targetObj.NickName, 0, "No external root cause found.", new List<Guid>());
     }
 
-    /// <summary>
-    /// Executes a Breadth-First Search (BFS) to determine how many downstream nodes depend on this node's output.
-    /// </summary>
     public static int TraceDownstreamImpact(Guid targetNodeId, out List<string> impactedNodeNames)
     {
         impactedNodeNames = new List<string>();

@@ -8,10 +8,42 @@ using GHXStudio.Core.Models;
 namespace GHXStudio.Core.Services;
 
 /// <summary>
-/// Handles serialization of performance telemetry into JSON and HTML formats.
+/// Handles serialization of performance telemetry into CSV, JSON, and HTML formats.
 /// </summary>
 public static class ExportService
 {
+    public static bool ExportToCsv(string filePath)
+    {
+        try
+        {
+            var snapshot = ProfilerService.GetCurrentSnapshot();
+            if (!snapshot.Any()) return false;
+
+            var csvBuilder = new StringBuilder();
+            csvBuilder.AppendLine("NodeId,NodeName,NodeType,ExecutionTime(ms),Memory(MB),Warnings,Errors,ThreadId,AnalysisResult");
+
+            foreach (var record in snapshot)
+            {
+                var analysis = RuleEngineService.EvaluateNode(record).Replace(",", ";");
+                var name = record.NodeName.Replace(",", ";");
+                
+                csvBuilder.AppendLine(
+                    $"{record.NodeId},{name},{record.NodeType},{record.ExecutionTimeMs:F2}," +
+                    $"{record.MemoryEstimateMb:F4},{record.WarningCount},{record.ErrorCount}," +
+                    $"{record.ThreadId},{analysis}"
+                );
+            }
+
+            File.WriteAllText(filePath, csvBuilder.ToString(), Encoding.UTF8);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Rhino.RhinoApp.WriteLine($"GHX Studio [CSV Export Error]: {ex.Message}");
+            return false;
+        }
+    }
+
     public static bool ExportToJson(string filePath)
     {
         try

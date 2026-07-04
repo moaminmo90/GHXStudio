@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Linq;
 using Grasshopper;
 using Grasshopper.GUI.Canvas;
@@ -9,32 +11,26 @@ namespace GHXStudio.Core.Services;
 
 /// <summary>
 /// Intercepts the Grasshopper canvas painting pipeline to inject real-time 
-/// performance heatmaps and execution time overlays directly on the nodes.
-/// Implements robust lifecycle management to prevent premature hooks before GH loads.
+/// performance heatmaps and glowing visual error traces directly on the nodes.
 /// </summary>
 public static class CanvasRendererService
 {
     public static bool IsHeatmapEnabled { get; set; } = false;
+    public static List<Guid> ActiveTracePath { get; set; } = new();
     private static bool _isAttached = false;
 
-    // Standardized performance palette
-    private static readonly Color FastColor = Color.FromArgb(60, 46, 204, 113);    // Transparent Green
-    private static readonly Color WarningColor = Color.FromArgb(60, 241, 196, 15); // Transparent Yellow
-    private static readonly Color CriticalColor = Color.FromArgb(80, 231, 76, 60); // Transparent Red
+    private static readonly Color FastColor = Color.FromArgb(60, 46, 204, 113);
+    private static readonly Color WarningColor = Color.FromArgb(60, 241, 196, 15);
+    private static readonly Color CriticalColor = Color.FromArgb(80, 231, 76, 60);
 
     public static void Initialize()
     {
         if (_isAttached) return;
 
-        // If Grasshopper UI is already open when the plugin loads, attach immediately
         if (Instances.ActiveCanvas != null)
-        {
             AttachToCanvas(Instances.ActiveCanvas);
-        }
 
-        // Subscribe to the global canvas creation event to catch future GH instances
         Instances.CanvasCreated += OnCanvasCreated;
-
         _isAttached = true;
     }
 
@@ -45,21 +41,50 @@ public static class CanvasRendererService
 
     private static void AttachToCanvas(GH_Canvas canvas)
     {
-        // Unsubscribe first to ensure we don't cause duplicate rendering artifacts
         canvas.CanvasPostPaintObjects -= OnCanvasPostPaintObjects;
         canvas.CanvasPostPaintObjects += OnCanvasPostPaintObjects;
     }
 
     private static void OnCanvasPostPaintObjects(GH_Canvas sender)
     {
-        if (!IsHeatmapEnabled || sender.Document == null) return;
+        if (sender.Document == null) return;
+
+        // --- 1. RENDER VISUAL ERROR TRACE (GLOWING WIRES) ---
+        if (ActiveTracePath != null && ActiveTracePath.Count > 1)
+        {
+            using var glowOuter = new Pen(Color.FromArgb(40, 255, 100, 0), 14f) { DashStyle = DashStyle.Solid, StartCap = LineCap.Round, EndCap = LineCap.Round };
+            using var glowInner = new Pen(Color.FromArgb(120, 255, 150, 0), 6f) { DashStyle = DashStyle.Solid, StartCap = LineCap.Round, EndCap = LineCap.Round };
+            using var coreWire = new Pen(Color.FromArgb(255, 255, 200, 0), 2f) { DashStyle = DashStyle.Dash, CustomEndCap = new AdjustableArrowCap(5, 5) };
+
+            for (int i = 0; i < ActiveTracePath.Count - 1; i++)
+            {
+                var nodeA = sender.Document.FindObject(ActiveTracePath[i], false);
+                var nodeB = sender.Document.FindObject(ActiveTracePath[i + 1], false);
+                if (nodeA == null || nodeB == null) continue;
+
+                var boundsA = nodeA.Attributes.Bounds;
+                var boundsB = nodeB.Attributes.Bounds;
+
+                PointF ptA = new PointF(boundsA.Right, boundsA.Top + boundsA.Height / 2);
+                PointF ptB = new PointF(boundsB.Left, boundsB.Top + boundsB.Height / 2);
+
+                float dx = Math.Max(50f, (ptB.X - ptA.X) * 0.5f);
+                PointF cpA = new PointF(ptA.X + dx, ptA.Y);
+                PointF cpB = new PointF(ptB.X - dx, ptB.Y);
+
+                sender.Graphics.DrawBezier(glowOuter, ptA, cpA, cpB, ptB);
+                sender.Graphics.DrawBezier(glowInner, ptA, cpA, cpB, ptB);
+                sender.Graphics.DrawBezier(coreWire, ptA, cpA, cpB, ptB);
+            }
+        }
+
+        // --- 2. RENDER PERFORMANCE HEATMAP ---
+        if (!IsHeatmapEnabled) return;
 
         var snapshot = ProfilerService.GetCurrentSnapshot();
         if (!snapshot.Any()) return;
 
-        // Create a fast lookup dictionary to match canvas objects with their telemetry data
         var telemetryLookup = snapshot.ToDictionary(r => r.NodeId);
-
         using var overlayFont = new Font(new FontFamily("Arial"), 7f, FontStyle.Bold);
         using var textBrush = new SolidBrush(Color.Black);
         using var textBgBrush = new SolidBrush(Color.FromArgb(200, 255, 255, 255));
@@ -68,7 +93,6 @@ public static class CanvasRendererService
         {
             if (!telemetryLookup.TryGetValue(obj.InstanceGuid, out var record)) continue;
 
-            // 1. Determine Heatmap Color based on execution time thresholds
             Color overlayColor;
             if (record.ExecutionTimeMs < 5.0) overlayColor = FastColor;
             else if (record.ExecutionTimeMs < 20.0) overlayColor = WarningColor;
@@ -76,30 +100,20 @@ public static class CanvasRendererService
 
             var nodeBounds = obj.Attributes.Bounds;
 
-            // 2. Draw the Heatmap overlay via Grasshopper's GDI+ graphics engine
             using (var heatmapBrush = new SolidBrush(overlayColor))
             {
                 sender.Graphics.FillRectangle(heatmapBrush, nodeBounds.X, nodeBounds.Y, nodeBounds.Width, nodeBounds.Height);
             }
 
-            // 3. Draw the Performance Overlay Tag
             string overlayText = $"{record.ExecutionTimeMs:F1} ms";
             var textSize = sender.Graphics.MeasureString(overlayText, overlayFont);
             
-            var tagRect = new RectangleF(
-                nodeBounds.Left, 
-                nodeBounds.Top - textSize.Height - 2, 
-                textSize.Width + 4, 
-                textSize.Height + 2);
-
+            var tagRect = new RectangleF(nodeBounds.Left, nodeBounds.Top - textSize.Height - 2, textSize.Width + 4, textSize.Height + 2);
             sender.Graphics.FillRectangle(textBgBrush, tagRect.X, tagRect.Y, tagRect.Width, tagRect.Height);
             sender.Graphics.DrawString(overlayText, overlayFont, textBrush, tagRect.Location);
         }
     }
 
-    /// <summary>
-    /// Forces the Grasshopper canvas to redraw immediately to reflect toggle state changes.
-    /// </summary>
     public static void RedrawCanvas()
     {
         Instances.ActiveCanvas?.Invalidate();
